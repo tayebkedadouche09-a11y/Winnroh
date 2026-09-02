@@ -16,9 +16,13 @@ import com.example.data.model.*
         UserCollection::class,
         CollectionItem::class,
         XPTransaction::class,
-        NotificationItem::class
+        NotificationItem::class,
+        ReportItem::class,
+        BusinessAccount::class,
+        VisitedPlaceLog::class,
+        SocialFollow::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -35,7 +39,9 @@ abstract class WaygoDatabase : RoomDatabase() {
                     context.applicationContext,
                     WaygoDatabase::class.java,
                     "waygo_app.db"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

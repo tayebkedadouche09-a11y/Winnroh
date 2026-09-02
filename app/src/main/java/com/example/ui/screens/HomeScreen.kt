@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -11,30 +10,28 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Casino
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.example.R
 import com.example.data.model.CategoryType
-import com.example.data.model.Place
+import com.example.data.service.CityLocation
 import com.example.ui.components.CategoryPill
 import com.example.ui.components.PlaceCard
 import com.example.ui.components.XPProgressBar
@@ -54,10 +51,26 @@ fun HomeScreen(
     val userProfile by viewModel.userProfile.collectAsState()
     val filterState by viewModel.filterState.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
+    val currency by viewModel.selectedCurrency.collectAsState()
+    val activeCity by viewModel.activeCity.collectAsState()
+    val weather by viewModel.weatherState.collectAsState()
+
+    var showCityDialog by remember { mutableStateOf(false) }
 
     val recommendedPlaces = places.filter { it.rating >= 4.8 }
     val trendingPlaces = places.filter { it.isTrending }
-    val coffeeSpots = places.filter { it.category == CategoryType.COFFEE }
+
+    val cityName = when (language) {
+        AppLanguage.ARABIC -> activeCity.nameAr
+        AppLanguage.FRENCH -> activeCity.nameFr
+        AppLanguage.ENGLISH -> activeCity.nameEn
+    }
+
+    val weatherHint = when (language) {
+        AppLanguage.ARABIC -> weather?.recommendationHintAr ?: Localization.get("weather_sunny", language)
+        AppLanguage.FRENCH -> weather?.recommendationHintFr ?: Localization.get("weather_sunny", language)
+        AppLanguage.ENGLISH -> weather?.recommendationHint ?: Localization.get("weather_sunny", language)
+    }
 
     LazyColumn(
         modifier = modifier
@@ -79,16 +92,38 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
+                        // Location & City Selector Badge
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = CoralPrimary.copy(alpha = 0.12f),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { showCityDialog = true }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Icon(Icons.Default.LocationOn, contentDescription = null, tint = CoralPrimary, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "$cityName, ${activeCity.country}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CoralPrimary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "▼",
+                                    fontSize = 9.sp,
+                                    color = CoralPrimary
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "WAYGO • وين نروح؟",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = CoralPrimary,
-                            letterSpacing = 1.2.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Good evening, ${userProfile?.displayName ?: "Explorer"} 👋",
+                            text = "Good day, ${userProfile?.displayName ?: "Explorer"} 👋",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Black,
                             color = MaterialTheme.colorScheme.onBackground
@@ -119,29 +154,45 @@ fun HomeScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Weather Context Pill
+                // Real-Time Weather Recommendation Banner
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = AmberAccent.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(16.dp),
+                    color = AmberAccent.copy(alpha = 0.15f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Outlined.WbSunny,
-                            contentDescription = "Weather",
-                            tint = AmberAccent,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = Localization.get("weather_sunny", language),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = weather?.iconEmoji ?: "🌤️",
+                            fontSize = 24.sp,
+                            modifier = Modifier.padding(end = 10.dp)
                         )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "${weather?.temperatureC?.toInt() ?: 23}°C",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = weather?.conditionTitle ?: "Pleasant Weather",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = CoralPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = weatherHint,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
@@ -274,7 +325,7 @@ fun HomeScreen(
 
                         Text(
                             text = Localization.get("surprise_me_sub", language),
-                            color = Color.White.copy(alpha = 0.8f),
+                            color = Color.White.copy(alpha = 0.85f),
                             fontSize = 11.sp,
                             maxLines = 2,
                             modifier = Modifier.width(220.dp)
@@ -319,6 +370,7 @@ fun HomeScreen(
                     PlaceCard(
                         place = place,
                         language = language,
+                        currency = currency,
                         onClick = { onNavigateToPlaceDetail(place.id) },
                         onSaveToggle = { viewModel.toggleSavePlace(place) },
                         modifier = Modifier.width(260.dp),
@@ -348,6 +400,7 @@ fun HomeScreen(
                     PlaceCard(
                         place = place,
                         language = language,
+                        currency = currency,
                         onClick = { onNavigateToPlaceDetail(place.id) },
                         onSaveToggle = { viewModel.toggleSavePlace(place) },
                         modifier = Modifier.width(240.dp)
@@ -373,12 +426,95 @@ fun HomeScreen(
             PlaceCard(
                 place = place,
                 language = language,
+                currency = currency,
                 onClick = { onNavigateToPlaceDetail(place.id) },
                 onSaveToggle = { viewModel.toggleSavePlace(place) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 6.dp)
             )
+        }
+    }
+
+    // City Location Selector Modal
+    if (showCityDialog) {
+        Dialog(onDismissRequest = { showCityDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = Localization.get("city_selector", language),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    val cities = listOf(
+                        CityLocation("Algiers", "الجزائر العاصمة", "Alger", "Algeria", 36.7538, 3.0588),
+                        CityLocation("Oran", "وهران", "Oran", "Algeria", 35.6987, -0.6349),
+                        CityLocation("Constantine", "قسنطينة", "Constantine", "Algeria", 36.3650, 6.6147),
+                        CityLocation("Paris", "باريس", "Paris", "France", 48.8566, 2.3522),
+                        CityLocation("Marseille", "مارسيليا", "Marseille", "France", 43.2965, 5.3698),
+                        CityLocation("Montreal", "مونتريال", "Montréal", "Canada", 45.5017, -73.5673),
+                        CityLocation("New York", "نيويورك", "New York", "USA", 40.7128, -74.0060),
+                        CityLocation("London", "لندن", "Londres", "UK", 51.5074, -0.1278),
+                        CityLocation("Dubai", "دبي", "Dubaï", "UAE", 25.2048, 55.2708),
+                        CityLocation("Tokyo", "طوكيو", "Tokyo", "Japan", 35.6762, 139.6503)
+                    )
+
+                    cities.forEach { city ->
+                        val isSelected = city.nameEn == activeCity.nameEn
+                        val cName = when (language) {
+                            AppLanguage.ARABIC -> city.nameAr
+                            AppLanguage.FRENCH -> city.nameFr
+                            AppLanguage.ENGLISH -> city.nameEn
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) CoralPrimary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    viewModel.setCity(city)
+                                    showCityDialog = false
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = cName,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) CoralPrimary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = city.country,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (isSelected) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = CoralPrimary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

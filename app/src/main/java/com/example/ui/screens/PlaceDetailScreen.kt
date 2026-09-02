@@ -2,12 +2,10 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,8 +47,11 @@ fun PlaceDetailScreen(
     val place = places.firstOrNull { it.id == placeId }
     val reviews by viewModel.selectedPlaceReviews.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
+    val currency by viewModel.selectedCurrency.collectAsState()
 
     var showReviewDialog by remember { mutableStateOf(false) }
+    var showClaimDialog by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
     var checkedInMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(placeId) {
@@ -66,6 +67,11 @@ fun PlaceDetailScreen(
 
     val displayName = if (language == AppLanguage.ARABIC) place.arabicName else place.name
     val displayDesc = if (language == AppLanguage.ARABIC) place.arabicDescription else place.description
+    val formattedPrice = when (language) {
+        AppLanguage.ARABIC -> currency.formatPriceAr(place.estimatedCostUsd)
+        AppLanguage.FRENCH -> currency.formatPriceFr(place.estimatedCostUsd)
+        AppLanguage.ENGLISH -> currency.formatPrice(place.estimatedCostUsd)
+    }
 
     Scaffold(
         bottomBar = {
@@ -94,24 +100,22 @@ fun PlaceDetailScreen(
                     ) {
                         Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = CoralPrimary)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Check In", color = CoralPrimary, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (place.isVisited) Localization.get("checked_in", language) else Localization.get("check_in", language),
+                            color = CoralPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
                     }
 
                     Button(
                         onClick = {
-                            // Launch Geo Maps Intent
-                            val gmmIntentUri = Uri.parse("geo:${place.latitude},${place.longitude}?q=${Uri.encode(place.name)}")
-                            val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
-                            try {
-                                context.startActivity(mapIntent)
-                            } catch (e: Exception) {
-                                // Fallback
-                            }
+                            viewModel.openDirections(place)
                         },
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary),
                         modifier = Modifier
-                            .weight(1.3f)
+                            .weight(1.2f)
                             .height(50.dp)
                             .testTag("go_there_btn")
                     ) {
@@ -153,7 +157,7 @@ fun PlaceDetailScreen(
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    colors = listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                                    colors = listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent, Color.Black.copy(alpha = 0.75f))
                                 )
                             )
                     )
@@ -182,14 +186,7 @@ fun PlaceDetailScreen(
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             IconButton(
-                                onClick = {
-                                    val sendIntent = Intent().apply {
-                                        action = Intent.ACTION_SEND
-                                        putExtra(Intent.EXTRA_TEXT, "Check out ${place.name} on WAYGO! ${place.address}")
-                                        type = "text/plain"
-                                    }
-                                    context.startActivity(Intent.createChooser(sendIntent, "Share place"))
-                                },
+                                onClick = { viewModel.sharePlace(place) },
                                 modifier = Modifier
                                     .size(40.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
@@ -222,17 +219,34 @@ fun PlaceDetailScreen(
                             .align(Alignment.BottomStart)
                             .padding(20.dp)
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = CoralPrimary
-                        ) {
-                            Text(
-                                text = "${place.category.emoji} ${place.category.name}",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = CoralPrimary
+                            ) {
+                                Text(
+                                    text = "${place.category.emoji} ${place.category.name}",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+
+                            if (place.isSponsored) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = AmberAccent
+                                ) {
+                                    Text(
+                                        text = "✓ Verified Partner",
+                                        color = Color.Black,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
@@ -292,8 +306,8 @@ fun PlaceDetailScreen(
                     MetaInfoChip(
                         icon = Icons.Outlined.AttachMoney,
                         iconTint = CoralPrimary,
-                        title = place.priceLevel.symbol,
-                        subtitle = "~$${place.estimatedCostUsd.toInt()} / person"
+                        title = formattedPrice,
+                        subtitle = "Estimated cost"
                     )
                     MetaInfoChip(
                         icon = Icons.Outlined.AccessTime,
@@ -357,7 +371,7 @@ fun PlaceDetailScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Features & Vibes
+                    // Features & Highlights
                     Text(
                         text = "Features & Highlights",
                         style = MaterialTheme.typography.titleSmall,
@@ -410,6 +424,28 @@ fun PlaceDetailScreen(
                 }
             }
 
+            // Business Ownership & Report Actions
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    TextButton(onClick = { showClaimDialog = true }) {
+                        Icon(Icons.Outlined.Business, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(Localization.get("claim_business", language), fontSize = 12.sp)
+                    }
+
+                    TextButton(onClick = { showReportDialog = true }) {
+                        Icon(Icons.Outlined.Flag, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(Localization.get("report_place", language), color = Color.Gray, fontSize = 12.sp)
+                    }
+                }
+            }
+
             // Community Reviews Header & Action
             item {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -441,7 +477,11 @@ fun PlaceDetailScreen(
 
             // Reviews List
             items(reviews) { rev ->
-                ReviewItemCard(review = rev)
+                ReviewItemCard(
+                    review = rev,
+                    onUpvote = { viewModel.upvoteReview(rev.id) },
+                    onReport = { viewModel.reportItem("REVIEW", rev.id, "Inappropriate content") }
+                )
             }
 
             item {
@@ -453,9 +493,31 @@ fun PlaceDetailScreen(
     if (showReviewDialog) {
         WriteReviewDialog(
             onDismiss = { showReviewDialog = false },
-            onSubmit = { rating, comment ->
+            onSubmit = { rating: Double, comment: String ->
                 viewModel.submitReview(place.id, rating, comment)
                 showReviewDialog = false
+            }
+        )
+    }
+
+    if (showClaimDialog) {
+        ClaimBusinessDialog(
+            place = place,
+            onDismiss = { showClaimDialog = false },
+            onSubmit = { name, email, phone, promo ->
+                viewModel.claimBusiness(place.id, name, email, phone, promo)
+                showClaimDialog = false
+            }
+        )
+    }
+
+    if (showReportDialog) {
+        ReportDialog(
+            targetTitle = place.name,
+            onDismiss = { showReportDialog = false },
+            onSubmit = { reason ->
+                viewModel.reportItem("PLACE", place.id, reason)
+                showReportDialog = false
             }
         )
     }
@@ -486,7 +548,11 @@ fun MetaInfoChip(
 }
 
 @Composable
-fun ReviewItemCard(review: Review) {
+fun ReviewItemCard(
+    review: Review,
+    onUpvote: () -> Unit = {},
+    onReport: () -> Unit = {}
+) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -527,6 +593,33 @@ fun ReviewItemCard(review: Review) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.clickable(onClick = onUpvote)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Outlined.ThumbUp, contentDescription = "Helpful", modifier = Modifier.size(12.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = "Helpful (${review.helpfulLikesCount})", fontSize = 11.sp)
+                    }
+                }
+
+                IconButton(onClick = onReport, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Outlined.Flag, contentDescription = "Report", tint = Color.Gray, modifier = Modifier.size(14.dp))
+                }
+            }
         }
     }
 }
@@ -558,7 +651,6 @@ fun WriteReviewDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Star Picker
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center
@@ -602,6 +694,163 @@ fun WriteReviewDialog(
                         enabled = comment.isNotBlank()
                     ) {
                         Text("Submit (+30 XP)")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ClaimBusinessDialog(
+    place: Place,
+    onDismiss: () -> Unit,
+    onSubmit: (String, String, String, String) -> Unit
+) {
+    var ownerName by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var promoOffer by remember { mutableStateOf("") }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "Claim Business Listing 🏢",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Verify management rights for ${place.name}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                OutlinedTextField(
+                    value = ownerName,
+                    onValueChange = { ownerName = it },
+                    label = { Text("Manager / Owner Name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Official Business Email") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it },
+                    label = { Text("Direct Phone Number") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = promoOffer,
+                    onValueChange = { promoOffer = it },
+                    label = { Text("Promotional Perk (e.g. 15% off for WAYGO explorers)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onSubmit(ownerName, email, phone, promoOffer) },
+                        colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary),
+                        enabled = ownerName.isNotBlank() && email.isNotBlank()
+                    ) {
+                        Text("Submit Verification")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ReportDialog(
+    targetTitle: String,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var reason by remember { mutableStateOf("Incorrect place information or permanently closed") }
+
+    val options = listOf(
+        "Permanently closed or moved",
+        "Incorrect pricing or opening hours",
+        "Offensive content or spam",
+        "Duplicate place listing"
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "Report Listing ⚠️",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Help us keep WAYGO accurate and safe for $targetTitle",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                options.forEach { opt ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { reason = opt }
+                            .padding(vertical = 6.dp)
+                    ) {
+                        RadioButton(selected = reason == opt, onClick = { reason = opt })
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = opt, fontSize = 13.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onSubmit(reason) },
+                        colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary)
+                    ) {
+                        Text("Submit Report")
                     }
                 }
             }

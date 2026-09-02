@@ -12,9 +12,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +41,7 @@ fun SavedCollectionsScreen(
     val savedPlaces by viewModel.savedPlaces.collectAsState()
     val collections by viewModel.collections.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
+    val currency by viewModel.selectedCurrency.collectAsState()
 
     var selectedTab by remember { mutableStateOf(0) }
     var showCreateCollectionDialog by remember { mutableStateOf(false) }
@@ -129,6 +127,7 @@ fun SavedCollectionsScreen(
                                 PlaceCard(
                                     place = place,
                                     language = language,
+                                    currency = currency,
                                     onClick = { onNavigateToPlaceDetail(place.id) },
                                     onSaveToggle = { viewModel.toggleSavePlace(place) },
                                     modifier = Modifier.fillMaxWidth()

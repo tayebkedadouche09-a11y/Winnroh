@@ -7,9 +7,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.Place
+import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.viewmodel.WaygoViewModel
@@ -33,6 +34,8 @@ fun AdminModerationScreen(
     modifier: Modifier = Modifier
 ) {
     val places by viewModel.allPlaces.collectAsState()
+    val reports by viewModel.allReports.collectAsState()
+    val businessAccounts by viewModel.businessAccounts.collectAsState()
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
@@ -76,17 +79,152 @@ fun AdminModerationScreen(
                 }
             }
 
+            // Reports Queue Section
+            item {
+                Text(
+                    text = "User Reports Queue (${reports.size}) ⚠️",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (reports.isEmpty()) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "✨ All user reports are cleared and moderated.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+            } else {
+                items(reports) { rep ->
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Outlined.Flag, contentDescription = null, tint = AmberAccent, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = "Target: ${rep.targetType} (${rep.targetId})", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (rep.status == "PENDING") AmberAccent.copy(alpha = 0.2f) else SuccessGreen.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = rep.status,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(text = "Reason: ${rep.reason}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(onClick = {
+                                    viewModel.resolveReport(rep.id, "DISMISSED")
+                                    statusMessage = "Dismissed report ${rep.id}"
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Dismiss", fontSize = 11.sp)
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Button(
+                                    onClick = {
+                                        viewModel.resolveReport(rep.id, "RESOLVED")
+                                        statusMessage = "Resolved report ${rep.id}"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary)
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Resolve & Take Action", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Business Claims Section
+            item {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Business Claims & Sponsorships (${businessAccounts.size}) 🏢",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (businessAccounts.isEmpty()) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "No pending business claims.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+            } else {
+                items(businessAccounts) { biz ->
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(text = biz.businessName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(text = "Email: ${biz.ownerEmail} • Phone: ${biz.contactPhone ?: "N/A"}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (biz.promotionalOffer != null) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(text = "🎁 Offer: ${biz.promotionalOffer}", fontSize = 12.sp, color = CoralPrimary, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Gamification Engine Controls
             item {
+                Spacer(modifier = Modifier.height(10.dp))
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(text = "🧪 Gamification Diagnostics", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(text = "Trigger real-time XP and Level Up progression engine events:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(text = "🧪 Gamification & XP Engine", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(text = "Test real-time XP and Level Up progression engine events:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         Spacer(modifier = Modifier.height(12.dp))
 
@@ -126,8 +264,9 @@ fun AdminModerationScreen(
 
             // Places Verification & Management
             item {
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Business Listings (${places.size})",
+                    text = "All Verified Places (${places.size})",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )

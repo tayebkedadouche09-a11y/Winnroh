@@ -4,9 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,6 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.data.model.AppCurrency
 import com.example.data.model.Badge
 import com.example.ui.components.BadgeCard
 import com.example.ui.components.XPProgressBar
@@ -39,12 +37,19 @@ fun ProfileScreen(
     modifier: Modifier = Modifier
 ) {
     val userProfile by viewModel.userProfile.collectAsState()
+    val authUser by viewModel.authUser.collectAsState()
     val badges by viewModel.allBadges.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
+    val currency by viewModel.selectedCurrency.collectAsState()
 
     var selectedBadgeDetail by remember { mutableStateOf<Badge?>(null) }
     var showLanguageDialog by remember { mutableStateOf(false) }
+    var showCurrencyDialog by remember { mutableStateOf(false) }
+    var showAuthDialog by remember { mutableStateOf(false) }
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
+    var showPrivacyPolicyDialog by remember { mutableStateOf(false) }
+    var showTermsDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = modifier
@@ -85,16 +90,32 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = userProfile?.displayName ?: "Ahmed",
+                    text = authUser?.displayName ?: userProfile?.displayName ?: "Ahmed",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Black
                 )
 
                 Text(
-                    text = "@${userProfile?.username ?: "ahmed_explorer"} • ${userProfile?.country ?: "Global"}",
+                    text = "@${authUser?.username ?: userProfile?.username ?: "ahmed_explorer"} • ${userProfile?.country ?: "Global"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                if (authUser?.role == "admin" || authUser?.role == "business") {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = CoralPrimary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "👑 ${authUser?.role?.uppercase()}",
+                            color = CoralPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -108,7 +129,7 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Stats Row (Discovered, Reviews, Followers)
+                // Stats Row (Discovered, Reviews, XP)
                 Card(
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -192,7 +213,7 @@ fun ProfileScreen(
             }
         }
 
-        // Preferences & Settings Section
+        // Preferences & System Settings Section
         item {
             Spacer(modifier = Modifier.height(24.dp))
             Text(
@@ -225,6 +246,19 @@ fun ProfileScreen(
 
                     Divider(color = MaterialTheme.colorScheme.surfaceVariant)
 
+                    // Currency item
+                    ListItem(
+                        headlineContent = { Text(Localization.get("currency_selector", language)) },
+                        supportingContent = { Text(currency.displayName) },
+                        leadingContent = { Icon(Icons.Outlined.AttachMoney, contentDescription = null, tint = AmberAccent) },
+                        trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+                        modifier = Modifier
+                            .testTag("setting_currency_item")
+                            .clickable { showCurrencyDialog = true }
+                    )
+
+                    Divider(color = MaterialTheme.colorScheme.surfaceVariant)
+
                     // Dark Mode item
                     ListItem(
                         headlineContent = { Text("Dark Theme") },
@@ -242,7 +276,7 @@ fun ProfileScreen(
 
                     // Business & Moderation Portal
                     ListItem(
-                        headlineContent = { Text("Business Portal & Moderation") },
+                        headlineContent = { Text(Localization.get("admin_portal", language)) },
                         supportingContent = { Text("Manage listings & user reports") },
                         leadingContent = { Icon(Icons.Outlined.AdminPanelSettings, contentDescription = null, tint = AmberAccent) },
                         trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
@@ -253,69 +287,97 @@ fun ProfileScreen(
                 }
             }
         }
+
+        // Account & Legal (Google Play Store Readiness)
+        item {
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "Account & Legal 🔒",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    ListItem(
+                        headlineContent = { Text(Localization.get("privacy_policy", language)) },
+                        leadingContent = { Icon(Icons.Outlined.Policy, contentDescription = null, tint = Color.Gray) },
+                        trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+                        modifier = Modifier.clickable { showPrivacyPolicyDialog = true }
+                    )
+
+                    Divider(color = MaterialTheme.colorScheme.surfaceVariant)
+
+                    ListItem(
+                        headlineContent = { Text(Localization.get("terms_of_service", language)) },
+                        leadingContent = { Icon(Icons.Outlined.Description, contentDescription = null, tint = Color.Gray) },
+                        trailingContent = { Icon(Icons.Default.ChevronRight, contentDescription = null) },
+                        modifier = Modifier.clickable { showTermsDialog = true }
+                    )
+
+                    Divider(color = MaterialTheme.colorScheme.surfaceVariant)
+
+                    if (authUser != null) {
+                        ListItem(
+                            headlineContent = { Text(Localization.get("auth_logout", language), color = CoralPrimary) },
+                            leadingContent = { Icon(Icons.Outlined.Logout, contentDescription = null, tint = CoralPrimary) },
+                            modifier = Modifier.clickable { viewModel.logout() }
+                        )
+
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant)
+
+                        ListItem(
+                            headlineContent = { Text(Localization.get("auth_delete_account", language), color = Color(0xFFE53935)) },
+                            leadingContent = { Icon(Icons.Outlined.DeleteForever, contentDescription = null, tint = Color(0xFFE53935)) },
+                            modifier = Modifier.clickable { showDeleteAccountDialog = true }
+                        )
+                    } else {
+                        ListItem(
+                            headlineContent = { Text(Localization.get("auth_login", language), color = CoralPrimary, fontWeight = FontWeight.Bold) },
+                            leadingContent = { Icon(Icons.Outlined.Login, contentDescription = null, tint = CoralPrimary) },
+                            modifier = Modifier.clickable { showAuthDialog = true }
+                        )
+                    }
+                }
+            }
+        }
     }
 
-    // Badge Details Modal
-    if (selectedBadgeDetail != null) {
-        val b = selectedBadgeDetail!!
-        val name = if (language == AppLanguage.ARABIC) b.nameAr else b.nameEn
-        val desc = if (language == AppLanguage.ARABIC) b.descAr else b.descEn
-
-        Dialog(onDismissRequest = { selectedBadgeDetail = null }) {
+    // Currency Selector Dialog
+    if (showCurrencyDialog) {
+        Dialog(onDismissRequest = { showCurrencyDialog = false }) {
             Card(
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.padding(16.dp)
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .background(AmberAccent.copy(alpha = 0.15f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(text = b.iconEmoji, fontSize = 38.sp)
-                    }
-
+                Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                    Text(text = Localization.get("currency_selector", language), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(14.dp))
-
-                    Text(text = name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = desc,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = CoralPrimary.copy(alpha = 0.12f)
-                    ) {
-                        Text(
-                            text = "+${b.xpReward} XP Reward",
-                            color = CoralPrimary,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    Button(
-                        onClick = { selectedBadgeDetail = null },
-                        colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Close")
+                    AppCurrency.values().forEach { c ->
+                        val isSel = c == currency
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSel) CoralPrimary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).clickable {
+                                viewModel.setCurrency(c)
+                                showCurrencyDialog = false
+                            }
+                        ) {
+                            Row(modifier = Modifier.padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = "${c.displayName} (${c.symbol})", fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium, color = if (isSel) CoralPrimary else MaterialTheme.colorScheme.onSurface)
+                                if (isSel) { Icon(Icons.Default.Check, contentDescription = null, tint = CoralPrimary) }
+                            }
+                        }
                     }
                 }
             }
@@ -330,48 +392,141 @@ fun ProfileScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.padding(16.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp)
-                ) {
-                    Text(
-                        text = "Choose Language / اختر اللغة",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-
+                Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                    Text(text = "Choose Language / اختر اللغة", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
-
                     AppLanguage.values().forEach { lang ->
                         val isSel = lang == language
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = if (isSel) CoralPrimary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    viewModel.setLanguage(lang)
-                                    showLanguageDialog = false
-                                }
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).clickable {
+                                viewModel.setLanguage(lang)
+                                showLanguageDialog = false
+                            }
                         ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = lang.displayName,
-                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSel) CoralPrimary else MaterialTheme.colorScheme.onSurface
-                                )
-                                if (isSel) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = CoralPrimary)
-                                }
+                            Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = lang.displayName, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium, color = if (isSel) CoralPrimary else MaterialTheme.colorScheme.onSurface)
+                                if (isSel) { Icon(Icons.Default.Check, contentDescription = null, tint = CoralPrimary) }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // Badge Details Dialog
+    if (selectedBadgeDetail != null) {
+        val b = selectedBadgeDetail!!
+        val name = if (language == AppLanguage.ARABIC) b.nameAr else b.nameEn
+        val desc = if (language == AppLanguage.ARABIC) b.descAr else b.descEn
+
+        Dialog(onDismissRequest = { selectedBadgeDetail = null }) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(24.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.size(72.dp).background(AmberAccent.copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = b.iconEmoji, fontSize = 38.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(text = name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(text = desc, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Surface(shape = RoundedCornerShape(10.dp), color = CoralPrimary.copy(alpha = 0.12f)) {
+                        Text(text = "+${b.xpReward} XP Reward", color = CoralPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(onClick = { selectedBadgeDetail = null }, colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text("Close")
+                    }
+                }
+            }
+        }
+    }
+
+    // Google Play Account Deletion Confirmation
+    if (showDeleteAccountDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAccountDialog = false },
+            title = { Text(Localization.get("auth_delete_account", language)) },
+            text = { Text(Localization.get("auth_delete_confirm", language)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteAccount()
+                        showDeleteAccountDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                ) {
+                    Text(Localization.get("delete", language))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAccountDialog = false }) {
+                    Text(Localization.get("cancel", language))
+                }
+            }
+        )
+    }
+
+    // Privacy Policy Dialog
+    if (showPrivacyPolicyDialog) {
+        Dialog(onDismissRequest = { showPrivacyPolicyDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(text = Localization.get("privacy_policy", language), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "WAYGO is committed to respecting and protecting your privacy. We only use location permissions to calculate distances to nearby experiences and provide local weather recommendations. Your data is never sold to third parties. You have full right to delete your account and associated local data at any time from this screen.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { showPrivacyPolicyDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                        Text("I Understand")
+                    }
+                }
+            }
+        }
+    }
+
+    // Terms of Service Dialog
+    if (showTermsDialog) {
+        Dialog(onDismissRequest = { showTermsDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(text = Localization.get("terms_of_service", language), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "By using WAYGO, you agree to discover, review, and share public places respectfully. Fraudulent reviews, hate speech, or abuse of the gamification XP system are strictly prohibited and subject to moderation removal.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { showTermsDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Agree & Close")
                     }
                 }
             }
@@ -380,17 +535,27 @@ fun ProfileScreen(
 }
 
 @Composable
-fun StatItem(count: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+fun StatItem(
+    count: String,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+    ) {
         Text(
             text = count,
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Black
+            fontWeight = FontWeight.Black,
+            color = CoralPrimary
         )
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = label,
-            fontSize = 11.sp,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
+

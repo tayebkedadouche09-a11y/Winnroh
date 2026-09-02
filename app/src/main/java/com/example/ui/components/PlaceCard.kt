@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -9,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.data.model.AppCurrency
 import com.example.data.model.Place
 import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.AppLanguage
@@ -35,6 +36,7 @@ import com.example.ui.theme.CoralPrimary
 fun PlaceCard(
     place: Place,
     language: AppLanguage,
+    currency: AppCurrency = AppCurrency.USD,
     onClick: () -> Unit,
     onSaveToggle: () -> Unit,
     modifier: Modifier = Modifier,
@@ -42,6 +44,11 @@ fun PlaceCard(
 ) {
     val displayName = if (language == AppLanguage.ARABIC) place.arabicName else place.name
     val displayDesc = if (language == AppLanguage.ARABIC) place.arabicDescription else place.description
+    val formattedPrice = when (language) {
+        AppLanguage.ARABIC -> currency.formatPriceAr(place.estimatedCostUsd)
+        AppLanguage.FRENCH -> currency.formatPriceFr(place.estimatedCostUsd)
+        AppLanguage.ENGLISH -> currency.formatPrice(place.estimatedCostUsd)
+    }
 
     Card(
         shape = RoundedCornerShape(20.dp),
@@ -75,7 +82,7 @@ fun PlaceCard(
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.Black.copy(alpha = 0.4f), Color.Transparent, Color.Black.copy(alpha = 0.5f))
+                                colors = listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent, Color.Black.copy(alpha = 0.55f))
                             )
                         )
                 )
@@ -89,7 +96,7 @@ fun PlaceCard(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                         modifier = Modifier.height(26.dp)
                     ) {
                         Row(
@@ -102,7 +109,7 @@ fun PlaceCard(
                                 modifier = Modifier.padding(end = 4.dp)
                             )
                             Text(
-                                text = place.priceLevel.symbol,
+                                text = formattedPrice,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -123,6 +130,28 @@ fun PlaceCard(
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
+                        }
+                    }
+
+                    if (place.isSponsored) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AmberAccent,
+                            modifier = Modifier.height(26.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Verified, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "Partner",
+                                    color = Color.Black,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }
@@ -155,7 +184,7 @@ fun PlaceCard(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (place.isOpenNow) Color(0xFF10B981).copy(alpha = 0.9f) else Color.DarkGray.copy(alpha = 0.8f)
+                        color = if (place.isOpenNow) Color(0xFF10B981).copy(alpha = 0.92f) else Color.DarkGray.copy(alpha = 0.85f)
                     ) {
                         Text(
                             text = if (place.isOpenNow) "Open Now" else "Closed",

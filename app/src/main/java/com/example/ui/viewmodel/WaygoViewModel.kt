@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.ai.GeminiConciergeService
 import com.example.data.model.*
 import com.example.data.repository.WaygoRepository
+import com.example.data.service.*
 import com.example.ui.theme.AppLanguage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -24,10 +25,25 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = WaygoRepository.getInstance(application)
     private val aiService = GeminiConciergeService()
+    private val authService = AuthService(application)
+    private val locationProvider = LocationAndPlacesProvider(application)
 
-    // App Preferences
+    // App Preferences & Globalization
     val currentLanguage = MutableStateFlow(AppLanguage.ENGLISH)
     val isDarkMode = MutableStateFlow(false)
+    val selectedCurrency = MutableStateFlow(AppCurrency.USD)
+    val activeCity = MutableStateFlow(locationProvider.supportedCities.first())
+
+    // Authentication State
+    val authUser = authService.currentUser
+    val authError = MutableStateFlow<String?>(null)
+
+    // Weather State
+    val weatherState = MutableStateFlow<WeatherInfo?>(null)
+
+    // Live Places Search State
+    val liveSearchResults = MutableStateFlow<List<Place>>(emptyList())
+    val isSearchingLive = MutableStateFlow(false)
 
     // Data Streams from Room
     val allPlaces = repository.allPlaces.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -37,12 +53,19 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
     val allBadges = repository.allBadges.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val collections = repository.collections.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val notifications = repository.notifications.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val allReports = repository.allReports.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val businessAccounts = repository.businessAccounts.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Explore / Filtering
     val filterState = MutableStateFlow(PlaceFilter())
 
-    val filteredPlaces: StateFlow<List<Place>> = combine(allPlaces, filterState) { places, filter ->
-        repository.filterPlaces(places, filter)
+    val filteredPlaces: StateFlow<List<Place>> = combine(allPlaces, filterState, activeCity) { places, filter, city ->
+        // Recalculate distance based on active city
+        val mappedPlaces = places.map { p ->
+            val dist = locationProvider.calculateDistanceKm(city.latitude, city.longitude, p.latitude, p.longitude)
+            p.copy(distanceKm = dist)
+        }
+        repository.filterPlaces(mappedPlaces, filter)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Selected Place Details
@@ -76,7 +99,27 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
 
     // Gamification Celebrations
     val levelUpCelebration = MutableStateFlow<Int?>(null)
-    val badgeUnlockCelebration = MutableStateFlow<Badge?>(null)
+
+    init {
+        loadWeather()
+    }
+
+    fun loadWeather() {
+        viewModelScope.launch {
+            val city = activeCity.value
+            val info = repository.fetchWeather(city.latitude, city.longitude)
+            weatherState.value = info
+        }
+    }
+
+    fun setCity(city: CityLocation) {
+        activeCity.value = city
+        loadWeather()
+    }
+
+    fun setCurrency(currency: AppCurrency) {
+        selectedCurrency.value = currency
+    }
 
     fun setLanguage(lang: AppLanguage) {
         currentLanguage.value = lang
@@ -86,8 +129,62 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
         isDarkMode.value = !isDarkMode.value
     }
 
+    // Authentication Actions
+    fun login(email: String, pass: String): Boolean {
+        return when (val res = authService.login(email, pass)) {
+            is AuthResult.Success -> {
+                authError.value = null
+                true
+            }
+            is AuthResult.Error -> {
+                authError.value = res.messageEn
+                false
+            }
+        }
+    }
+
+    fun register(email: String, pass: String, name: String, username: String): Boolean {
+        return when (val res = authService.register(email, pass, name, username)) {
+            is AuthResult.Success -> {
+                authError.value = null
+                true
+            }
+            is AuthResult.Error -> {
+                authError.value = res.messageEn
+                false
+            }
+        }
+    }
+
+    fun logout() {
+        authService.logout()
+    }
+
+    fun deleteAccount() {
+        viewModelScope.launch {
+            repository.deleteAccount()
+            authService.deleteAccount()
+        }
+    }
+
+    // Search & Live Places
     fun updateSearchQuery(query: String) {
         filterState.value = filterState.value.copy(query = query)
+        if (query.length >= 3) {
+            searchLive(query)
+        } else {
+            liveSearchResults.value = emptyList()
+        }
+    }
+
+    private fun searchLive(query: String) {
+        viewModelScope.launch {
+            isSearchingLive.value = true
+            val city = activeCity.value
+            val live = repository.searchLivePlaces(query, city.latitude, city.longitude)
+            liveSearchResults.value = live
+            isSearchingLive.value = false
+        }
     }
 
     fun selectCategory(category: CategoryType) {
@@ -114,14 +211,39 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun checkInPlace(place: Place) {
         viewModelScope.launch {
-            repository.markPlaceVisited(place.id)
+            val city = activeCity.value
+            repository.markPlaceVisited(place.id, city.latitude, city.longitude)
         }
     }
 
-    fun submitReview(placeId: String, rating: Double, comment: String) {
+    fun submitReview(placeId: String, rating: Double, comment: String, photoUrl: String? = null) {
         viewModelScope.launch {
-            val user = userProfile.value?.displayName ?: "Ahmed"
-            repository.addReview(placeId, rating, comment, user)
+            val user = authUser.value?.displayName ?: userProfile.value?.displayName ?: "Explorer"
+            repository.addReview(placeId, rating, comment, user, photoUrl)
+        }
+    }
+
+    fun upvoteReview(reviewId: String) {
+        viewModelScope.launch {
+            repository.upvoteReview(reviewId)
+        }
+    }
+
+    fun reportItem(targetType: String, targetId: String, reason: String) {
+        viewModelScope.launch {
+            repository.reportItem(targetType, targetId, reason)
+        }
+    }
+
+    fun resolveReport(reportId: String, status: String) {
+        viewModelScope.launch {
+            repository.resolveReport(reportId, status)
+        }
+    }
+
+    fun claimBusiness(placeId: String, name: String, email: String, phone: String, promo: String) {
+        viewModelScope.launch {
+            repository.claimBusiness(placeId, name, email, phone, promo)
         }
     }
 
@@ -131,11 +253,25 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteCollection(collectionId: String) {
+        viewModelScope.launch {
+            repository.deleteCollection(collectionId)
+        }
+    }
+
+    fun openDirections(place: Place) {
+        repository.openDirections(place)
+    }
+
+    fun sharePlace(place: Place) {
+        repository.sharePlace(place)
+    }
+
     fun rollSurpriseMe() {
         viewModelScope.launch {
             isSurpriseSpinning.value = true
             surpriseResult.value = null
-            delay(1200) // Engaging suspense animation
+            delay(1200)
 
             val eligiblePlaces = allPlaces.value.filter { p ->
                 p.priceLevel.ordinal <= surpriseBudget.value.ordinal &&
@@ -150,7 +286,7 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
 
             surpriseResult.value = chosen
             isSurpriseSpinning.value = false
-            repository.awardXP(15, "Rolled Surprise Me Discovery 🎲")
+            repository.awardXpWithDeduplication(15, "Rolled Surprise Me Discovery 🎲")
         }
     }
 
@@ -163,9 +299,9 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val places = allPlaces.value
             val profile = userProfile.value
-            val contextInfo = "User: ${profile?.displayName}, City: ${profile?.city}, Interests: ${profile?.selectedInterests?.joinToString()}"
+            val city = activeCity.value
+            val contextInfo = "User: ${profile?.displayName}, City: ${city.nameEn} (${city.country}), Interests: ${profile?.selectedInterests?.joinToString()}"
 
-            // If prompt requests itinerary
             if (prompt.lowercase().contains("itinerary") || prompt.lowercase().contains("plan") || prompt.lowercase().contains("جدول") || prompt.lowercase().contains("برنامج")) {
                 val itinerary = aiService.generateItinerary(places, "Friends Squad", 50.0, 3.5)
                 activeItinerary.value = itinerary
@@ -182,7 +318,7 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             isAiThinking.value = false
-            repository.awardXP(20, "Used AI Concierge Discovery")
+            repository.awardXpWithDeduplication(20, "Used AI Concierge Discovery")
         }
     }
 
@@ -196,7 +332,7 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
                     hasCompletedOnboarding = true
                 )
             )
-            repository.awardXP(50, "Completed Explorer Onboarding ✨")
+            repository.awardXpWithDeduplication(50, "Completed Explorer Onboarding ✨")
         }
     }
 }

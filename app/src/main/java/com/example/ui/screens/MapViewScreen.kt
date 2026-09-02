@@ -1,8 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,17 +10,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.GpsFixed
-import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -46,9 +39,9 @@ fun MapViewScreen(
     val places by viewModel.allPlaces.collectAsState()
     val filterState by viewModel.filterState.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
+    val currency by viewModel.selectedCurrency.collectAsState()
 
     var activeSelectedPlace by remember { mutableStateOf<Place?>(null) }
-    var currentRadiusKm by remember { mutableStateOf(5f) }
 
     LaunchedEffect(places) {
         if (activeSelectedPlace == null && places.isNotEmpty()) {
@@ -68,7 +61,6 @@ fun MapViewScreen(
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     detectTapGestures { offset ->
-                        // Switch active place on tap
                         if (places.isNotEmpty()) {
                             activeSelectedPlace = places.random()
                         }
@@ -136,7 +128,6 @@ fun MapViewScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             places.take(6).forEachIndexed { index, place ->
                 val isSelected = activeSelectedPlace?.id == place.id
-                // Spread coordinates
                 val xPos = when (index) {
                     0 -> 0.3f
                     1 -> 0.7f
@@ -235,6 +226,7 @@ fun MapViewScreen(
                 PlaceCard(
                     place = place,
                     language = language,
+                    currency = currency,
                     onClick = { onNavigateToPlaceDetail(place.id) },
                     onSaveToggle = { viewModel.toggleSavePlace(place) },
                     modifier = Modifier.fillMaxWidth()

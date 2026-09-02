@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.FilterAlt
+import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,10 +41,14 @@ fun ExploreScreen(
     modifier: Modifier = Modifier
 ) {
     val filteredPlaces by viewModel.filteredPlaces.collectAsState()
+    val liveSearchResults by viewModel.liveSearchResults.collectAsState()
+    val isSearchingLive by viewModel.isSearchingLive.collectAsState()
     val filterState by viewModel.filterState.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
+    val currency by viewModel.selectedCurrency.collectAsState()
 
     var showFilterSheet by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(0) } // 0: Curated Places, 1: Live Map Search
 
     Scaffold(
         topBar = {
@@ -135,7 +140,7 @@ fun ExploreScreen(
                 }
             }
 
-            // Quick Filter Chips Row (Open Now, Solo, Friends, Indoor)
+            // Quick Filter Chips Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -173,6 +178,33 @@ fun ExploreScreen(
                 )
             }
 
+            // Tabs for Curated vs Live Map Discovery if search query active
+            if (filterState.query.length >= 3) {
+                TabRow(
+                    selectedTabIndex = selectedTab,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = CoralPrimary,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                ) {
+                    Tab(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        text = { Text("Curated Spots (${filteredPlaces.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    )
+                    Tab(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.TravelExplore, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(Localization.get("live_search", language), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    )
+                }
+            }
+
             // Results count and clear button
             Row(
                 modifier = Modifier
@@ -181,8 +213,9 @@ fun ExploreScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val displayCount = if (selectedTab == 1 && filterState.query.length >= 3) liveSearchResults.size else filteredPlaces.size
                 Text(
-                    text = "${filteredPlaces.size} experiences found",
+                    text = "$displayCount experiences found",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -199,28 +232,61 @@ fun ExploreScreen(
                 }
             }
 
-            // Places List or Empty State
-            if (filteredPlaces.isEmpty()) {
-                EmptyStateView(
-                    emoji = "🔍",
-                    title = "No experiences match your criteria",
-                    subtitle = "Try broadening your budget, clearing category filters, or searching for coffee, gaming, or parks.",
-                    actionButtonText = "Reset Filters",
-                    onActionClick = { viewModel.resetFilters() }
-                )
+            // Active Tab Content
+            if (selectedTab == 1 && filterState.query.length >= 3) {
+                if (isSearchingLive) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = CoralPrimary)
+                    }
+                } else if (liveSearchResults.isEmpty()) {
+                    EmptyStateView(
+                        emoji = "🌍",
+                        title = "No live places found",
+                        subtitle = "Try searching for a different landmark, street, or cafe name.",
+                        actionButtonText = "Back to Curated",
+                        onActionClick = { selectedTab = 0 }
+                    )
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        items(liveSearchResults) { place ->
+                            PlaceCard(
+                                place = place,
+                                language = language,
+                                currency = currency,
+                                onClick = { onNavigateToPlaceDetail(place.id) },
+                                onSaveToggle = { viewModel.toggleSavePlace(place) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
             } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    items(filteredPlaces) { place ->
-                        PlaceCard(
-                            place = place,
-                            language = language,
-                            onClick = { onNavigateToPlaceDetail(place.id) },
-                            onSaveToggle = { viewModel.toggleSavePlace(place) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                if (filteredPlaces.isEmpty()) {
+                    EmptyStateView(
+                        emoji = "🔍",
+                        title = "No experiences match your criteria",
+                        subtitle = "Try broadening your budget, clearing category filters, or searching for coffee, gaming, or parks.",
+                        actionButtonText = "Reset Filters",
+                        onActionClick = { viewModel.resetFilters() }
+                    )
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        items(filteredPlaces) { place ->
+                            PlaceCard(
+                                place = place,
+                                language = language,
+                                currency = currency,
+                                onClick = { onNavigateToPlaceDetail(place.id) },
+                                onSaveToggle = { viewModel.toggleSavePlace(place) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }
