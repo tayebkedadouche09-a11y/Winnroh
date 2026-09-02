@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.ai.GeminiConciergeService
 import com.example.data.model.*
+import com.example.data.repository.CheckInResult
 import com.example.data.repository.WaygoRepository
 import com.example.data.service.*
 import com.example.ui.theme.AppLanguage
@@ -27,12 +28,17 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
     private val aiService = GeminiConciergeService()
     private val authService = AuthService(application)
     private val locationProvider = LocationAndPlacesProvider(application)
+    private val currencyService = CurrencyService(application)
 
     // App Preferences & Globalization
     val currentLanguage = MutableStateFlow(AppLanguage.ENGLISH)
     val isDarkMode = MutableStateFlow(false)
     val selectedCurrency = MutableStateFlow(AppCurrency.USD)
-    val activeCity = MutableStateFlow(locationProvider.supportedCities.first())
+    val liveExchangeRates = currencyService.rates
+    val exchangeRateLastUpdated: String get() = currencyService.getLastUpdatedTimestamp()
+
+    val defaultGlobalCities = locationProvider.defaultGlobalCities
+    val activeCity = MutableStateFlow(locationProvider.defaultGlobalCities.first())
 
     // Authentication State
     val authUser = authService.currentUser
@@ -41,9 +47,13 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
     // Weather State
     val weatherState = MutableStateFlow<WeatherInfo?>(null)
 
-    // Live Places Search State
+    // Live Places Search & Loading State
     val liveSearchResults = MutableStateFlow<List<Place>>(emptyList())
     val isSearchingLive = MutableStateFlow(false)
+    val isDiscoveringNearby = MutableStateFlow(false)
+
+    // Check-in Feedback
+    val checkInMessage = MutableStateFlow<String?>(null)
 
     // Data Streams from Room
     val allPlaces = repository.allPlaces.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -60,7 +70,6 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
     val filterState = MutableStateFlow(PlaceFilter())
 
     val filteredPlaces: StateFlow<List<Place>> = combine(allPlaces, filterState, activeCity) { places, filter, city ->
-        // Recalculate distance based on active city
         val mappedPlaces = places.map { p ->
             val dist = locationProvider.calculateDistanceKm(city.latitude, city.longitude, p.latitude, p.longitude)
             p.copy(distanceKm = dist)
@@ -90,18 +99,26 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
         listOf(
             ChatMessage(
                 sender = "concierge",
-                text = "👋 Hello! I'm your WAYGO Concierge. Where are you heading, who are you with, and what's your vibe today?"
+                text = "👋 مرحباً بك في وين نروح؟ (WINNROH). أنا مرشدك الذكي. أخبرني بأجواء خروجتك، اهتماماتك أو المدينة التي ترغب باستكشافها!"
             )
         )
     )
     val isAiThinking = MutableStateFlow(false)
     val activeItinerary = MutableStateFlow<ItineraryPlan?>(null)
-
-    // Gamification Celebrations
     val levelUpCelebration = MutableStateFlow<Int?>(null)
 
     init {
+        // Try getting device GPS location initially
+        val deviceLoc = locationProvider.getDeviceLocation()
+        if (deviceLoc != null) {
+            activeCity.value = deviceLoc
+        }
         loadWeather()
+        refreshPlacesAroundCurrentLocation()
+
+        viewModelScope.launch {
+            currencyService.getExchangeRates()
+        }
     }
 
     fun loadWeather() {
@@ -115,6 +132,34 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
     fun setCity(city: CityLocation) {
         activeCity.value = city
         loadWeather()
+        refreshPlacesAroundCurrentLocation()
+    }
+
+    fun useDeviceGpsLocation() {
+        val loc = locationProvider.getDeviceLocation()
+        if (loc != null) {
+            activeCity.value = loc
+            loadWeather()
+            refreshPlacesAroundCurrentLocation()
+        }
+    }
+
+    fun searchAndSelectCity(query: String) {
+        viewModelScope.launch {
+            val geocoded = locationProvider.geocodeAddress(query)
+            if (geocoded != null) {
+                setCity(geocoded)
+            }
+        }
+    }
+
+    fun refreshPlacesAroundCurrentLocation() {
+        viewModelScope.launch {
+            isDiscoveringNearby.value = true
+            val city = activeCity.value
+            repository.fetchAndCacheNearbyPlaces(city.latitude, city.longitude, 10000, filterState.value.category)
+            isDiscoveringNearby.value = false
+        }
     }
 
     fun setCurrency(currency: AppCurrency) {
@@ -189,6 +234,7 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectCategory(category: CategoryType) {
         filterState.value = filterState.value.copy(category = category)
+        refreshPlacesAroundCurrentLocation()
     }
 
     fun updateFilter(filter: PlaceFilter) {
@@ -212,8 +258,23 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
     fun checkInPlace(place: Place) {
         viewModelScope.launch {
             val city = activeCity.value
-            repository.markPlaceVisited(place.id, city.latitude, city.longitude)
+            val result = repository.checkInWithProximity(place, city.latitude, city.longitude)
+            when (result) {
+                is CheckInResult.Success -> {
+                    checkInMessage.value = "✅ Checked in to ${result.placeName}! +${result.xpAwarded} XP"
+                }
+                is CheckInResult.TooFar -> {
+                    checkInMessage.value = "⚠️ Too far to check in (${result.distanceMeters}m away). Must be within 500m."
+                }
+                is CheckInResult.AlreadyVisited -> {
+                    checkInMessage.value = "📍 You have already checked in to this place."
+                }
+            }
         }
+    }
+
+    fun clearCheckInMessage() {
+        checkInMessage.value = null
     }
 
     fun submitReview(placeId: String, rating: Double, comment: String, photoUrl: String? = null) {
@@ -271,22 +332,24 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             isSurpriseSpinning.value = true
             surpriseResult.value = null
-            delay(1200)
+            delay(1000)
 
-            val eligiblePlaces = allPlaces.value.filter { p ->
-                p.priceLevel.ordinal <= surpriseBudget.value.ordinal &&
-                        p.suitableCompanions.contains(surpriseCompanion.value.name)
+            val places = allPlaces.value
+            val eligiblePlaces = places.filter { p ->
+                p.priceLevel.ordinal <= surpriseBudget.value.ordinal
             }
 
             val chosen = if (eligiblePlaces.isNotEmpty()) {
                 eligiblePlaces.random()
             } else {
-                allPlaces.value.randomOrNull()
+                places.randomOrNull()
             }
 
             surpriseResult.value = chosen
             isSurpriseSpinning.value = false
-            repository.awardXpWithDeduplication(15, "Rolled Surprise Me Discovery 🎲")
+            if (chosen != null) {
+                repository.awardXpWithDeduplication(15, "Rolled Surprise Me Discovery 🎲")
+            }
         }
     }
 
@@ -300,10 +363,10 @@ class WaygoViewModel(application: Application) : AndroidViewModel(application) {
             val places = allPlaces.value
             val profile = userProfile.value
             val city = activeCity.value
-            val contextInfo = "User: ${profile?.displayName}, City: ${city.nameEn} (${city.country}), Interests: ${profile?.selectedInterests?.joinToString()}"
+            val contextInfo = "User: ${profile?.displayName}, Location: ${city.nameEn} (${city.country}), Interests: ${profile?.selectedInterests?.joinToString()}"
 
             if (prompt.lowercase().contains("itinerary") || prompt.lowercase().contains("plan") || prompt.lowercase().contains("جدول") || prompt.lowercase().contains("برنامج")) {
-                val itinerary = aiService.generateItinerary(places, "Friends Squad", 50.0, 3.5)
+                val itinerary = aiService.generateItinerary(places, "Group Outing", 50.0, 3.5)
                 activeItinerary.value = itinerary
                 val aiMsg = ChatMessage(
                     sender = "concierge",

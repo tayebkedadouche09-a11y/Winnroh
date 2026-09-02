@@ -1,6 +1,7 @@
 {
-  "name": "WAYGO",
-  "description": "WAYGO (وين نروح؟) - The ultimate experience discovery platform powered by maps, gamification, smart filters, and AI concierge.",
+  "name": "WINNROH",
+  "description": "WINNROH (وين نروح؟) - The ultimate experience discovery platform powered by real GPS, live places, interactive maps, gamified XP, and grounded AI concierge.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
+

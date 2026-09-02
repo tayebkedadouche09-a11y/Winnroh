@@ -48,11 +48,13 @@ fun PlaceDetailScreen(
     val reviews by viewModel.selectedPlaceReviews.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
     val currency by viewModel.selectedCurrency.collectAsState()
+    val liveRates by viewModel.liveExchangeRates.collectAsState()
+    val checkInMsg by viewModel.checkInMessage.collectAsState()
+    val liveRate = liveRates[currency.code]
 
     var showReviewDialog by remember { mutableStateOf(false) }
     var showClaimDialog by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
-    var checkedInMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(placeId) {
         viewModel.selectPlace(placeId)
@@ -68,9 +70,9 @@ fun PlaceDetailScreen(
     val displayName = if (language == AppLanguage.ARABIC) place.arabicName else place.name
     val displayDesc = if (language == AppLanguage.ARABIC) place.arabicDescription else place.description
     val formattedPrice = when (language) {
-        AppLanguage.ARABIC -> currency.formatPriceAr(place.estimatedCostUsd)
-        AppLanguage.FRENCH -> currency.formatPriceFr(place.estimatedCostUsd)
-        AppLanguage.ENGLISH -> currency.formatPrice(place.estimatedCostUsd)
+        AppLanguage.ARABIC -> currency.formatPriceAr(place.estimatedCostUsd, liveRate)
+        AppLanguage.FRENCH -> currency.formatPriceFr(place.estimatedCostUsd, liveRate)
+        AppLanguage.ENGLISH -> currency.formatPrice(place.estimatedCostUsd, liveRate)
     }
 
     Scaffold(
@@ -90,7 +92,6 @@ fun PlaceDetailScreen(
                     OutlinedButton(
                         onClick = {
                             viewModel.checkInPlace(place)
-                            checkedInMessage = "Checked in! +50 XP Discovered 🌟"
                         },
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
@@ -262,7 +263,7 @@ fun PlaceDetailScreen(
             }
 
             // Check-in celebration alert banner if triggered
-            if (checkedInMessage != null) {
+            if (checkInMsg != null) {
                 item {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -278,7 +279,7 @@ fun PlaceDetailScreen(
                             Text(text = "🎉", fontSize = 20.sp)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = checkedInMessage!!,
+                                text = checkInMsg ?: "",
                                 fontWeight = FontWeight.Bold,
                                 color = SuccessGreen,
                                 fontSize = 13.sp

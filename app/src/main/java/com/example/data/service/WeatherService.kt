@@ -48,17 +48,39 @@ class WeatherService {
     suspend fun fetchWeather(latitude: Double, longitude: Double): WeatherInfo = withContext(Dispatchers.IO) {
         try {
             val url = "https://api.open-meteo.com/v1/forecast?latitude=$latitude&longitude=$longitude&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m"
-            val request = Request.Builder().url(url).build()
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "WINNROH-App/1.0 (contact: info@winnroh.app)")
+                .header("Accept", "application/json")
+                .build()
             val response = client.newCall(request).execute()
 
             if (response.isSuccessful) {
-                val json = response.body?.string() ?: ""
-                val dto = moshi.adapter(OpenMeteoResponse::class.java).fromJson(json)
-                val current = dto?.current
-                if (current != null) {
-                    val code = current.weather_code ?: 0
-                    val temp = current.temperature_2m ?: 22.0
-                    val precip = current.precipitation ?: 0.0
+                val json = response.body?.string()?.trim() ?: ""
+                if (json.isNotEmpty() && json.startsWith("{")) {
+                    var temp = 22.0
+                    var code = 0
+                    var precip = 0.0
+
+                    try {
+                        val dto = moshi.adapter(OpenMeteoResponse::class.java).lenient().fromJson(json)
+                        val current = dto?.current
+                        if (current != null) {
+                            code = current.weather_code ?: 0
+                            temp = current.temperature_2m ?: 22.0
+                            precip = current.precipitation ?: 0.0
+                        }
+                    } catch (moshiErr: Exception) {
+                        // Fallback with org.json.JSONObject for maximum resilience
+                        val jsonObj = org.json.JSONObject(json)
+                        if (jsonObj.has("current")) {
+                            val currentObj = jsonObj.getJSONObject("current")
+                            temp = currentObj.optDouble("temperature_2m", 22.0)
+                            code = currentObj.optInt("weather_code", 0)
+                            precip = currentObj.optDouble("precipitation", 0.0)
+                        }
+                    }
+
                     val isRain = precip > 0.1 || code in listOf(51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99)
 
                     return@withContext if (isRain) {

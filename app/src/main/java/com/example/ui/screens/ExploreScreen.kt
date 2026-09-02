@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,7 +16,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +27,7 @@ import com.example.data.model.CompanionType
 import com.example.ui.components.CategoryPill
 import com.example.ui.components.EmptyStateView
 import com.example.ui.components.PlaceCard
+import com.example.ui.theme.AppLanguage
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.Localization
 import com.example.ui.viewmodel.WaygoViewModel
@@ -43,23 +42,52 @@ fun ExploreScreen(
     val filteredPlaces by viewModel.filteredPlaces.collectAsState()
     val liveSearchResults by viewModel.liveSearchResults.collectAsState()
     val isSearchingLive by viewModel.isSearchingLive.collectAsState()
+    val isDiscovering by viewModel.isDiscoveringNearby.collectAsState()
     val filterState by viewModel.filterState.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
     val currency by viewModel.selectedCurrency.collectAsState()
+    val activeCity by viewModel.activeCity.collectAsState()
 
     var showFilterSheet by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableStateOf(0) } // 0: Curated Places, 1: Live Map Search
+
+    val displayPlaces = if (filterState.query.length >= 3 && liveSearchResults.isNotEmpty()) {
+        liveSearchResults
+    } else {
+        filteredPlaces
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = Localization.get("nav_explore", language),
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column {
+                        Text(
+                            text = Localization.get("nav_explore", language),
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${activeCity.nameEn}, ${activeCity.country}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = CoralPrimary
+                        )
+                    }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { viewModel.refreshPlacesAroundCurrentLocation() },
+                        modifier = Modifier.testTag("refresh_places_btn")
+                    ) {
+                        if (isDiscovering) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = CoralPrimary
+                            )
+                        } else {
+                            Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh", tint = CoralPrimary)
+                        }
+                    }
+
                     IconButton(
                         onClick = { showFilterSheet = true },
                         modifier = Modifier
@@ -178,34 +206,7 @@ fun ExploreScreen(
                 )
             }
 
-            // Tabs for Curated vs Live Map Discovery if search query active
-            if (filterState.query.length >= 3) {
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = CoralPrimary,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("Curated Spots (${filteredPlaces.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.TravelExplore, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(Localization.get("live_search", language), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    )
-                }
-            }
-
-            // Results count and clear button
+            // Results count and reset action
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -213,9 +214,8 @@ fun ExploreScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val displayCount = if (selectedTab == 1 && filterState.query.length >= 3) liveSearchResults.size else filteredPlaces.size
                 Text(
-                    text = "$displayCount experiences found",
+                    text = "${displayPlaces.size} real places discovered",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -232,68 +232,40 @@ fun ExploreScreen(
                 }
             }
 
-            // Active Tab Content
-            if (selectedTab == 1 && filterState.query.length >= 3) {
-                if (isSearchingLive) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = CoralPrimary)
-                    }
-                } else if (liveSearchResults.isEmpty()) {
-                    EmptyStateView(
-                        emoji = "🌍",
-                        title = "No live places found",
-                        subtitle = "Try searching for a different landmark, street, or cafe name.",
-                        actionButtonText = "Back to Curated",
-                        onActionClick = { selectedTab = 0 }
-                    )
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        items(liveSearchResults) { place ->
-                            PlaceCard(
-                                place = place,
-                                language = language,
-                                currency = currency,
-                                onClick = { onNavigateToPlaceDetail(place.id) },
-                                onSaveToggle = { viewModel.toggleSavePlace(place) },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
+            // Place Cards List
+            if (isSearchingLive) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = CoralPrimary)
                 }
+            } else if (displayPlaces.isEmpty()) {
+                EmptyStateView(
+                    emoji = "🔍",
+                    title = "No places found for this filter",
+                    subtitle = "Try adjusting your filters or tap Discover to query real venues around ${activeCity.nameEn}.",
+                    actionButtonText = "Discover Nearby",
+                    onActionClick = { viewModel.refreshPlacesAroundCurrentLocation() }
+                )
             } else {
-                if (filteredPlaces.isEmpty()) {
-                    EmptyStateView(
-                        emoji = "🔍",
-                        title = "No experiences match your criteria",
-                        subtitle = "Try broadening your budget, clearing category filters, or searching for coffee, gaming, or parks.",
-                        actionButtonText = "Reset Filters",
-                        onActionClick = { viewModel.resetFilters() }
-                    )
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        items(filteredPlaces) { place ->
-                            PlaceCard(
-                                place = place,
-                                language = language,
-                                currency = currency,
-                                onClick = { onNavigateToPlaceDetail(place.id) },
-                                onSaveToggle = { viewModel.toggleSavePlace(place) },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
+                LazyColumn(
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    items(displayPlaces) { place ->
+                        PlaceCard(
+                            place = place,
+                            language = language,
+                            currency = currency,
+                            onClick = { onNavigateToPlaceDetail(place.id) },
+                            onSaveToggle = { viewModel.toggleSavePlace(place) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }
         }
     }
 
-    // Advanced Bottom Sheet Filter
+    // Filter Bottom Sheet
     if (showFilterSheet) {
         ModalBottomSheet(
             onDismissRequest = { showFilterSheet = false },
@@ -302,19 +274,19 @@ fun ExploreScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp)
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
             ) {
                 Text(
-                    text = "Smart Experience Filters ⚙️",
+                    text = Localization.get("filter_title", language),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Budget Selector
+                // Budget Level
                 Text(
-                    text = Localization.get("budget", language),
+                    text = Localization.get("budget_title", language),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 )
@@ -323,36 +295,40 @@ fun ExploreScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    BudgetLevel.values().forEach { b ->
-                        val isSel = filterState.maxBudget == b
+                    BudgetLevel.values().forEach { budget ->
+                        val isSelected = filterState.maxBudget == budget
+                        val budgetLabel = when (language) {
+                            AppLanguage.ARABIC -> budget.labelAr
+                            else -> budget.labelEn
+                        }
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = if (isSel) CoralPrimary else MaterialTheme.colorScheme.surfaceVariant,
+                            color = if (isSelected) CoralPrimary else MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier
                                 .weight(1f)
-                                .height(38.dp)
-                                .clip(RoundedCornerShape(12.dp))
                                 .clickable {
-                                    viewModel.updateFilter(filterState.copy(maxBudget = if (isSel) null else b))
+                                    viewModel.updateFilter(
+                                        filterState.copy(maxBudget = if (isSelected) null else budget)
+                                    )
                                 }
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = b.symbol,
-                                    color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                            }
+                            Text(
+                                text = budgetLabel,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Companion Selector
+                // Companion Type
                 Text(
-                    text = Localization.get("companions", language),
+                    text = Localization.get("companions_title", language),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 )
@@ -361,47 +337,50 @@ fun ExploreScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    CompanionType.values().forEach { comp ->
-                        val isSel = filterState.companion == comp
+                    CompanionType.values().forEach { companion ->
+                        val isSelected = filterState.companion == companion
+                        val compLabel = when (language) {
+                            AppLanguage.ARABIC -> companion.labelAr
+                            AppLanguage.FRENCH -> companion.labelFr
+                            AppLanguage.ENGLISH -> companion.labelEn
+                        }
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = if (isSel) CoralPrimary else MaterialTheme.colorScheme.surfaceVariant,
+                            color = if (isSelected) CoralPrimary else MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier
                                 .weight(1f)
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(12.dp))
                                 .clickable {
-                                    viewModel.updateFilter(filterState.copy(companion = if (isSel) null else comp))
+                                    viewModel.updateFilter(
+                                        filterState.copy(companion = if (isSelected) null else companion)
+                                    )
                                 }
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(text = comp.emoji, fontSize = 14.sp)
-                                Text(
-                                    text = comp.labelEn.split(" ").first(),
-                                    color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 10.sp
-                                )
-                            }
+                            Text(
+                                text = "${companion.emoji} $compLabel",
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
+                // Apply button
                 Button(
                     onClick = { showFilterSheet = false },
-                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CoralPrimary),
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
                 ) {
-                    Text("APPLY FILTERS (${filteredPlaces.size})", fontWeight = FontWeight.Bold)
+                    Text("Show Experiences", fontWeight = FontWeight.Bold)
                 }
-
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(20.dp))
             }
         }
     }

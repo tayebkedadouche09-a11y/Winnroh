@@ -1,34 +1,42 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.data.model.CategoryType
 import com.example.data.model.Place
 import com.example.ui.components.CategoryPill
 import com.example.ui.components.PlaceCard
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.WaygoViewModel
+import kotlin.math.*
 
 @Composable
 fun MapViewScreen(
@@ -37,11 +45,15 @@ fun MapViewScreen(
     modifier: Modifier = Modifier
 ) {
     val places by viewModel.allPlaces.collectAsState()
+    val activeCity by viewModel.activeCity.collectAsState()
     val filterState by viewModel.filterState.collectAsState()
     val language by viewModel.currentLanguage.collectAsState()
     val currency by viewModel.selectedCurrency.collectAsState()
 
     var activeSelectedPlace by remember { mutableStateOf<Place?>(null) }
+    var zoomLevel by remember { mutableStateOf(14) }
+    var panOffsetX by remember { mutableStateOf(0f) }
+    var panOffsetY by remember { mutableStateOf(0f) }
 
     LaunchedEffect(places) {
         if (activeSelectedPlace == null && places.isNotEmpty()) {
@@ -49,137 +61,144 @@ fun MapViewScreen(
         }
     }
 
+    // Reset pan when city changes
+    LaunchedEffect(activeCity) {
+        panOffsetX = 0f
+        panOffsetY = 0f
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF131A26))
+            .background(Color(0xFF0F172A))
             .testTag("map_view_screen")
     ) {
-        // Map Canvas Simulator
-        Canvas(
+        // Slippy Tile Map Viewport
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        if (places.isNotEmpty()) {
-                            activeSelectedPlace = places.random()
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        panOffsetX += pan.x
+                        panOffsetY += pan.y
+                        if (zoom > 1.15f && zoomLevel < 18) {
+                            zoomLevel += 1
+                        } else if (zoom < 0.85f && zoomLevel > 11) {
+                            zoomLevel -= 1
                         }
                     }
                 }
         ) {
-            val width = size.width
-            val height = size.height
+            val widthPx = constraints.maxWidth.toFloat()
+            val heightPx = constraints.maxHeight.toFloat()
+            val density = LocalDensity.current
 
-            // Draw background terrain and roads
-            drawRect(Color(0xFF1E293B))
+            val centerLat = activeCity.latitude
+            val centerLon = activeCity.longitude
 
-            // Main avenues / grid lines
-            drawLine(
-                color = Color(0xFF334155),
-                start = Offset(0f, height * 0.4f),
-                end = Offset(width, height * 0.4f),
-                strokeWidth = 14f
-            )
-            drawLine(
-                color = Color(0xFF334155),
-                start = Offset(width * 0.35f, 0f),
-                end = Offset(width * 0.35f, height),
-                strokeWidth = 12f
-            )
-            drawLine(
-                color = Color(0xFF475569),
-                start = Offset(0f, height * 0.7f),
-                end = Offset(width, height * 0.2f),
-                strokeWidth = 8f
-            )
+            // Web Mercator tile calculations
+            val n = 1 shl zoomLevel
+            val centerTileXDouble = (centerLon + 180.0) / 360.0 * n
+            val latRad = Math.toRadians(centerLat)
+            val centerTileYDouble = (1.0 - asinh(tan(latRad)) / Math.PI) / 2.0 * n
 
-            // Radius Circle
-            drawCircle(
-                color = CoralPrimary.copy(alpha = 0.08f),
-                radius = 280f,
-                center = Offset(width * 0.5f, height * 0.45f)
-            )
-            drawCircle(
-                color = CoralPrimary.copy(alpha = 0.3f),
-                radius = 280f,
-                center = Offset(width * 0.5f, height * 0.45f),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
-            )
+            val centerTileX = centerTileXDouble.toInt()
+            val centerTileY = centerTileYDouble.toInt()
 
-            // Current User Location Pulse
-            drawCircle(
-                color = InfoBlue.copy(alpha = 0.25f),
-                radius = 32f,
-                center = Offset(width * 0.5f, height * 0.45f)
-            )
-            drawCircle(
-                color = Color.White,
-                radius = 12f,
-                center = Offset(width * 0.5f, height * 0.45f)
-            )
-            drawCircle(
-                color = InfoBlue,
-                radius = 8f,
-                center = Offset(width * 0.5f, height * 0.45f)
-            )
-        }
+            val tileSizePx = with(density) { 256.dp.toPx() }
 
-        // Custom Overlay Map Pins
-        Box(modifier = Modifier.fillMaxSize()) {
-            places.take(6).forEachIndexed { index, place ->
-                val isSelected = activeSelectedPlace?.id == place.id
-                val xPos = when (index) {
-                    0 -> 0.3f
-                    1 -> 0.7f
-                    2 -> 0.2f
-                    3 -> 0.8f
-                    4 -> 0.55f
-                    else -> 0.4f
-                }
-                val yPos = when (index) {
-                    0 -> 0.32f
-                    1 -> 0.25f
-                    2 -> 0.58f
-                    3 -> 0.62f
-                    4 -> 0.22f
-                    else -> 0.72f
-                }
+            // Render 3x3 surrounding tiles for smooth coverage
+            for (dx in -2..2) {
+                for (dy in -2..2) {
+                    val tileX = centerTileX + dx
+                    val tileY = centerTileY + dy
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 180.dp),
-                    contentAlignment = Alignment.TopStart
-                ) {
-                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                        val pinX = maxWidth * xPos
-                        val pinY = maxHeight * yPos
+                    if (tileX in 0 until n && tileY in 0 until n) {
+                        val tileOffsetX = (tileX - centerTileXDouble) * tileSizePx + (widthPx / 2f) + panOffsetX
+                        val tileOffsetY = (tileY - centerTileYDouble) * tileSizePx + (heightPx / 2f) + panOffsetY
+
+                        val tileUrl = "https://cartodb-basemaps-a.global.ssl.fastly.net/rastertiles/voyager/$zoomLevel/$tileX/$tileY.png"
 
                         Box(
                             modifier = Modifier
-                                .offset(x = pinX, y = pinY)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(if (isSelected) CoralPrimary else MaterialTheme.colorScheme.surface)
-                                .clickable { activeSelectedPlace = place }
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                .offset { IntOffset(tileOffsetX.toInt(), tileOffsetY.toInt()) }
+                                .size(256.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = place.category.emoji, fontSize = 14.sp)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = place.priceLevel.symbol,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
-                                )
-                            }
+                            AsyncImage(
+                                model = tileUrl,
+                                contentDescription = "Map Tile",
+                                contentScale = ContentScale.FillBounds,
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
                     }
                 }
             }
+
+            // Real Place Coordinate Markers
+            places.forEach { place ->
+                val isSelected = activeSelectedPlace?.id == place.id
+
+                val placeTileXDouble = (place.longitude + 180.0) / 360.0 * n
+                val pLatRad = Math.toRadians(place.latitude)
+                val placeTileYDouble = (1.0 - asinh(tan(pLatRad)) / Math.PI) / 2.0 * n
+
+                val markerX = (placeTileXDouble - centerTileXDouble) * tileSizePx + (widthPx / 2f) + panOffsetX
+                val markerY = (placeTileYDouble - centerTileYDouble) * tileSizePx + (heightPx / 2f) + panOffsetY
+
+                if (markerX in -50f..(widthPx + 50f) && markerY in -50f..(heightPx + 50f)) {
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset(markerX.toInt() - 40, markerY.toInt() - 40) }
+                            .shadow(elevation = if (isSelected) 10.dp else 4.dp, shape = RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSelected) CoralPrimary else MaterialTheme.colorScheme.surface)
+                            .clickable { activeSelectedPlace = place }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = place.category.emoji, fontSize = 15.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (place.name.length > 12) place.name.take(10) + "…" else place.name,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            // User GPS Location Pin (at active center)
+            val gpsMarkerX = (widthPx / 2f) + panOffsetX
+            val gpsMarkerY = (heightPx / 2f) + panOffsetY
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(gpsMarkerX.toInt() - 14, gpsMarkerY.toInt() - 14) }
+                    .size(28.dp)
+                    .background(InfoBlue.copy(alpha = 0.25f), CircleShape)
+                    .padding(4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .background(Color.White, CircleShape)
+                        .padding(2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(InfoBlue, CircleShape)
+                    )
+                }
+            }
         }
 
-        // Top Filter Floating Bar
+        // Top Category Bar
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -189,7 +208,7 @@ fun MapViewScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(CategoryType.values().take(6)) { cat ->
+                items(CategoryType.values().take(8)) { cat ->
                     CategoryPill(
                         category = cat,
                         isSelected = filterState.category == cat,
@@ -200,18 +219,44 @@ fun MapViewScreen(
             }
         }
 
-        // Floating GPS Center Button
-        FloatingActionButton(
-            onClick = { /* Re-center to user */ },
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = CoralPrimary,
-            shape = CircleShape,
+        // Map Control Floating Buttons (Zoom In, Zoom Out, Center GPS)
+        Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 70.dp, end = 16.dp)
-                .size(44.dp)
+                .padding(top = 74.dp, end = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(imageVector = Icons.Default.MyLocation, contentDescription = "My Location", modifier = Modifier.size(20.dp))
+            SmallFloatingActionButton(
+                onClick = { if (zoomLevel < 18) zoomLevel += 1 },
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = CircleShape
+            ) {
+                Icon(imageVector = Icons.Default.Add, contentDescription = "Zoom In")
+            }
+
+            SmallFloatingActionButton(
+                onClick = { if (zoomLevel > 11) zoomLevel -= 1 },
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = CircleShape
+            ) {
+                Icon(imageVector = Icons.Default.Remove, contentDescription = "Zoom Out")
+            }
+
+            FloatingActionButton(
+                onClick = {
+                    panOffsetX = 0f
+                    panOffsetY = 0f
+                    viewModel.refreshPlacesAroundCurrentLocation()
+                },
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = CoralPrimary,
+                shape = CircleShape,
+                modifier = Modifier.size(46.dp)
+            ) {
+                Icon(imageVector = Icons.Default.MyLocation, contentDescription = "My Location")
+            }
         }
 
         // Bottom Selected Place Card Card
